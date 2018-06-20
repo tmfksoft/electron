@@ -1,21 +1,25 @@
 'use strict'
 
 const assert = require('assert')
-const {expect} = require('chai')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const qs = require('querystring')
 const http = require('http')
+
+const chai = require('chai')
+const dirtyChai = require('dirty-chai')
+const {emittedOnce} = require('./events-helpers')
 const {closeWindow} = require('./window-helpers')
-
 const {ipcRenderer, remote, screen} = require('electron')
+
 const {app, ipcMain, BrowserWindow, BrowserView, protocol, session, webContents} = remote
-
 const features = process.atomBinding('features')
-
 const isCI = remote.getGlobal('isCi')
 const nativeModulesEnabled = remote.getGlobal('nativeModulesEnabled')
+const {expect} = chai
+
+chai.use(dirtyChai)
 
 describe('BrowserWindow module', () => {
   const fixtures = path.resolve(__dirname, 'fixtures')
@@ -360,20 +364,18 @@ describe('BrowserWindow module', () => {
 
     it('should defocus on window', () => {
       w.hide()
-      assert(!w.isFocused())
+      expect(w.isFocused()).to.be.false()
     })
     it('should make the window not visible', () => {
       w.show()
       w.hide()
-      assert(!w.isVisible())
+      expect(w.isVisible()).to.be.false()
     })
-    it('emits when window is hidden', (done) => {
+    it('emits when window is hidden', async () => {
       w.show()
-      w.once('hide', () => {
-        assert.equal(w.isVisible(), false)
-        done()
-      })
       w.hide()
+      await emittedOnce(w, 'hide')
+      expect(w.isVisible()).to.be.false()
     })
   })
 
@@ -400,14 +402,12 @@ describe('BrowserWindow module', () => {
   })
 
   // TODO(alexeykuzmin): [Ch66] Enable the test. Passes locally.
-  xdescribe('BrowserWindow.getFocusedWindow()', (done) => {
-    it('returns the opener window when dev tools window is focused', (done) => {
+  xdescribe('BrowserWindow.getFocusedWindow()', () => {
+    it('returns the opener window when dev tools window is focused', async () => {
       w.show()
-      w.webContents.once('devtools-focused', () => {
-        assert.deepEqual(BrowserWindow.getFocusedWindow(), w)
-        done()
-      })
       w.webContents.openDevTools({mode: 'undocked'})
+      await emittedOnce(w.webContents, 'devtools-focused')
+      expect(BrowserWindow.getFocusedWindow()).to.equal(w)
     })
   })
 
@@ -424,7 +424,7 @@ describe('BrowserWindow module', () => {
       })
     })
 
-    it('preserves transparency', (done) => {
+    it('preserves transparency', async () => {
       w.close()
       const width = 400
       const height = 400
@@ -435,27 +435,28 @@ describe('BrowserWindow module', () => {
         transparent: true
       })
       w.loadURL('data:text/html,<html><body background-color: rgba(255,255,255,0)></body></html>')
-      w.once('ready-to-show', () => {
-        w.show()
-        w.capturePage((image) => {
-          let imgBuffer = image.toPNG()
-          // Check 25th byte in the PNG
-          // Values can be 0,2,3,4, or 6. We want 6, which is RGB + Alpha
-          assert.equal(imgBuffer[25], 6)
-          done()
-        })
+      await emittedOnce(w, 'ready-to-show')
+      w.show()
+
+      const image = await new Promise(resolve => {
+        w.capturePage(resolve)
       })
+      let imgBuffer = image.toPNG()
+      // Check 25th byte in the PNG.
+      // Values can be 0,2,3,4, or 6. We want 6, which is RGB + Alpha.
+      expect(imgBuffer[25]).to.equal(6)
     })
   })
 
   describe('BrowserWindow.setSize(width, height)', () => {
-    it('sets the window size', (done) => {
+    it('sets the window size', async () => {
       const size = [300, 400]
-      w.once('resize', () => {
-        assertBoundsEqual(w.getSize(), size)
-        done()
-      })
+
+      const sizeIsSet = emittedOnce(w, 'resize')
       w.setSize(size[0], size[1])
+      await sizeIsSet
+
+      assertBoundsEqual(w.getSize(), size)
     })
   })
 
@@ -475,28 +476,28 @@ describe('BrowserWindow module', () => {
   })
 
   describe('BrowserWindow.setAspectRatio(ratio)', () => {
-    it('resets the behaviour when passing in 0', (done) => {
-      const size = [300, 400]
+    it('resets the behaviour when passing in 0', async () => {
       w.setAspectRatio(1 / 2)
       w.setAspectRatio(0)
-      w.once('resize', () => {
-        assertBoundsEqual(w.getSize(), size)
-        done()
-      })
-      w.setSize(size[0], size[1])
+
+      const size = [300, 400]
+      const sizeIsSet = emittedOnce(w, 'resize')
+      w.setSize(...size)
+      await sizeIsSet
+
+      assertBoundsEqual(w.getSize(), size)
     })
   })
 
   describe('BrowserWindow.setPosition(x, y)', () => {
-    it('sets the window position', (done) => {
-      const pos = [10, 10]
-      w.once('move', () => {
-        const newPos = w.getPosition()
-        assert.equal(newPos[0], pos[0])
-        assert.equal(newPos[1], pos[1])
-        done()
-      })
-      w.setPosition(pos[0], pos[1])
+    it('sets the window position', async () => {
+      const hasMoved = emittedOnce(w, 'move')
+      const expectedPosition = [10, 10]
+      w.setPosition(...expectedPosition)
+      await hasMoved
+
+      const actualPosition = w.getPosition()
+      expect(actualPosition).to.deep.equal(expectedPosition)
     })
   })
 
@@ -620,13 +621,16 @@ describe('BrowserWindow module', () => {
     })
 
     it('resets the windows level on minimize', () => {
-      assert.equal(w.isAlwaysOnTop(), false)
+      expect(w.isAlwaysOnTop()).to.be.false()
+
       w.setAlwaysOnTop(true, 'screen-saver')
-      assert.equal(w.isAlwaysOnTop(), true)
+      expect(w.isAlwaysOnTop()).to.be.true()
+
       w.minimize()
-      assert.equal(w.isAlwaysOnTop(), false)
+      expect(w.isAlwaysOnTop()).to.be.false()
+
       w.restore()
-      assert.equal(w.isAlwaysOnTop(), true)
+      expect(w.isAlwaysOnTop()).to.be.true()
     })
   })
 
@@ -1787,11 +1791,9 @@ describe('BrowserWindow module', () => {
       })
     }
 
-    function onNextVisibilityChange (callback) {
-      ipcMain.once('pong', (event, visibilityState, hidden) => {
-        if (event.sender.id === w.webContents.id) {
-          callback(visibilityState, hidden)
-        }
+    function onNextVisibilityChange () {
+      return new Promise(resolve => {
+        onVisibilityChange((...args) => resolve(args))
       })
     }
 
@@ -1805,7 +1807,7 @@ describe('BrowserWindow module', () => {
         readyToShow = true
       })
 
-      onNextVisibilityChange((visibilityState, hidden) => {
+      onNextVisibilityChange().then(([visibilityState, hidden]) => {
         assert.equal(readyToShow, false)
         assert.equal(visibilityState, 'visible')
         assert.equal(hidden, false)
@@ -1815,28 +1817,25 @@ describe('BrowserWindow module', () => {
 
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
     })
-    it('visibilityState changes when window is hidden', (done) => {
+
+    it('visibilityState changes when window is hidden', async () => {
       w = new BrowserWindow({width: 100, height: 100})
-
-      onNextVisibilityChange((visibilityState, hidden) => {
-        assert.equal(visibilityState, 'visible')
-        assert.equal(hidden, false)
-
-        onNextVisibilityChange((visibilityState, hidden) => {
-          assert.equal(visibilityState, 'hidden')
-          assert.equal(hidden, true)
-          done()
-        })
-
-        w.hide()
-      })
-
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
+
+      const [visibilityStateOne, hiddenOne] = await onNextVisibilityChange()
+      assert.equal(visibilityStateOne, 'visible')
+      assert.equal(hiddenOne, false)
+
+      w.hide()
+      const [visibilityStateTwo, hiddenTwo] = await onNextVisibilityChange()
+      assert.equal(visibilityStateTwo, 'hidden')
+      assert.equal(hiddenTwo, true)
     })
+
     it('visibilityState changes when window is shown', (done) => {
       w = new BrowserWindow({width: 100, height: 100})
 
-      onNextVisibilityChange((visibilityState, hidden) => {
+      onNextVisibilityChange().then(() => {
         onVisibilityChange((visibilityState, hidden) => {
           if (!hidden) {
             assert.equal(visibilityState, 'visible')
@@ -1850,6 +1849,7 @@ describe('BrowserWindow module', () => {
 
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
     })
+
     it('visibilityState changes when window is shown inactive', function (done) {
       if (isCI && process.platform === 'win32') {
         // FIXME(alexeykuzmin): Skip the test instead of marking it as passed.
@@ -1862,7 +1862,7 @@ describe('BrowserWindow module', () => {
 
       w = new BrowserWindow({width: 100, height: 100})
 
-      onNextVisibilityChange((visibilityState, hidden) => {
+      onNextVisibilityChange().then(() => {
         onVisibilityChange((visibilityState, hidden) => {
           if (!hidden) {
             assert.equal(visibilityState, 'visible')
@@ -1876,33 +1876,30 @@ describe('BrowserWindow module', () => {
 
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
     })
-    it('visibilityState changes when window is minimized', function (done) {
+
+    it('visibilityState changes when window is minimized', async function () {
       if (isCI && process.platform === 'linux') {
         // FIXME(alexeykuzmin): Skip the test instead of marking it as passed.
         // afterEach hook won't be run if a test is skipped dynamically.
         // If afterEach isn't run current window won't be destroyed
         // and the next test will fail on assertion in `closeWindow()`.
         // this.skip()
-        return done()
+        return
       }
 
       w = new BrowserWindow({width: 100, height: 100})
-
-      onNextVisibilityChange((visibilityState, hidden) => {
-        assert.equal(visibilityState, 'visible')
-        assert.equal(hidden, false)
-
-        onNextVisibilityChange((visibilityState, hidden) => {
-          assert.equal(visibilityState, 'hidden')
-          assert.equal(hidden, true)
-          done()
-        })
-
-        w.minimize()
-      })
-
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
+
+      const [visibilityStateOne, hiddenOne] = await onNextVisibilityChange()
+      assert.equal(visibilityStateOne, 'visible')
+      assert.equal(hiddenOne, false)
+
+      w.minimize()
+      const [visibilityStateTwo, hiddenTwo] = await onNextVisibilityChange()
+      assert.equal(visibilityStateTwo, 'hidden')
+      assert.equal(hiddenTwo, true)
     })
+
     it('visibilityState remains visible if backgroundThrottling is disabled', (done) => {
       w = new BrowserWindow({
         show: false,
@@ -1913,11 +1910,11 @@ describe('BrowserWindow module', () => {
         }
       })
 
-      onNextVisibilityChange((visibilityState, hidden) => {
+      onNextVisibilityChange().then(([visibilityState, hidden]) => {
         assert.equal(visibilityState, 'visible')
         assert.equal(hidden, false)
 
-        onNextVisibilityChange((visibilityState, hidden) => {
+        onNextVisibilityChange().then(([visibilityState, hidden]) => {
           done(new Error(`Unexpected visibility change event. visibilityState: ${visibilityState} hidden: ${hidden}`))
         })
       })
@@ -2379,7 +2376,6 @@ describe('BrowserWindow module', () => {
       })
     })
 
-    // TODO(alexeykuzmin): [Ch66] Enable the test. It passes locally.
     describe('kiosk state', () => {
       before(function () {
         // Only implemented on macOS.
@@ -2388,19 +2384,19 @@ describe('BrowserWindow module', () => {
         }
       })
 
-      it('can be changed with setKiosk method', (done) => {
+      it('can be changed with setKiosk method', async () => {
         w.destroy()
         w = new BrowserWindow()
+
         w.setKiosk(true)
         assert.equal(w.isKiosk(), true)
 
-        w.once('enter-full-screen', () => {
-          w.setKiosk(false)
-          assert.equal(w.isKiosk(), false)
-        })
-        w.once('leave-full-screen', () => {
-          done()
-        })
+        await emittedOnce(w, 'enter-full-screen')
+
+        w.setKiosk(false)
+        assert.equal(w.isKiosk(), false)
+
+        await emittedOnce(w, 'leave-full-screen')
       })
     })
 
@@ -2436,35 +2432,34 @@ describe('BrowserWindow module', () => {
         }
       })
 
-      it('can be changed with setFullScreen method', (done) => {
+      it('can be changed with setFullScreen method', async () => {
         w.destroy()
         w = new BrowserWindow()
-        w.once('enter-full-screen', () => {
-          assert.equal(w.isFullScreen(), true)
-          w.setFullScreen(false)
-        })
-        w.once('leave-full-screen', () => {
-          assert.equal(w.isFullScreen(), false)
-          done()
-        })
+
         w.setFullScreen(true)
+        await emittedOnce(w, 'enter-full-screen')
+        expect(w.isFullScreen()).to.be.true()
+
+        w.setFullScreen(false)
+        await emittedOnce(w, 'leave-full-screen')
+        expect(w.isFullScreen()).to.be.false()
       })
 
-      it('should not be changed by setKiosk method', (done) => {
+      it('should not be changed by setKiosk method', async () => {
         w.destroy()
         w = new BrowserWindow()
-        w.once('enter-full-screen', () => {
-          assert.equal(w.isFullScreen(), true)
-          w.setKiosk(true)
-          w.setKiosk(false)
-          assert.equal(w.isFullScreen(), true)
-          w.setFullScreen(false)
-        })
-        w.once('leave-full-screen', () => {
-          assert.equal(w.isFullScreen(), false)
-          done()
-        })
+
         w.setFullScreen(true)
+        await emittedOnce(w, 'enter-full-screen')
+        expect(w.isFullScreen()).to.be.true()
+
+        w.setKiosk(true)
+        w.setKiosk(false)
+        expect(w.isFullScreen()).to.be.true()
+
+        w.setFullScreen(false)
+        await emittedOnce(w, 'leave-full-screen')
+        expect(w.isFullScreen()).to.be.false()
       })
     })
 
@@ -2472,15 +2467,17 @@ describe('BrowserWindow module', () => {
       it('can be changed with closable option', () => {
         w.destroy()
         w = new BrowserWindow({show: false, closable: false})
-        assert.equal(w.isClosable(), false)
+        expect(w.isClosable()).to.be.false()
       })
 
       it('can be changed with setClosable method', () => {
-        assert.equal(w.isClosable(), true)
+        expect(w.isClosable()).to.be.true()
+
         w.setClosable(false)
-        assert.equal(w.isClosable(), false)
+        expect(w.isClosable()).to.be.false()
+
         w.setClosable(true)
-        assert.equal(w.isClosable(), true)
+        expect(w.isClosable()).to.be.true()
       })
     })
 
@@ -2489,17 +2486,23 @@ describe('BrowserWindow module', () => {
       // dynamically.
       it('can be changed with hasShadow option', () => {
         w.destroy()
+
         let hasShadow = process.platform !== 'darwin'
         w = new BrowserWindow({show: false, hasShadow: hasShadow})
         assert.equal(w.hasShadow(), hasShadow)
       })
 
-      it('can be changed with setHasShadow method', () => {
-        if (process.platform !== 'darwin') return
+      it('can be changed with setHasShadow method', function () {
+        if (process.platform !== 'darwin') {
+          this.skip()
+          return
+        }
 
         assert.equal(w.hasShadow(), true)
+
         w.setHasShadow(false)
         assert.equal(w.hasShadow(), false)
+
         w.setHasShadow(true)
         assert.equal(w.hasShadow(), true)
       })
@@ -2577,19 +2580,17 @@ describe('BrowserWindow module', () => {
     })
 
     // TODO(alexeykuzmin): [Ch66] Enable the test. Fails on CI bots, passes locally.
-    xit('exits HTML fullscreen when window leaves fullscreen', (done) => {
+    xit('exits HTML fullscreen when window leaves fullscreen', async () => {
       w.destroy()
       w = new BrowserWindow()
-      w.webContents.once('did-finish-load', () => {
-        w.once('enter-full-screen', () => {
-          w.once('leave-html-full-screen', () => {
-            done()
-          })
-          w.setFullScreen(false)
-        })
-        w.webContents.executeJavaScript('document.body.webkitRequestFullscreen()', true)
-      })
       w.loadURL('about:blank')
+      emittedOnce(w.webContents, 'did-finish-load')
+
+      w.webContents.executeJavaScript('document.body.webkitRequestFullscreen()', true)
+      await emittedOnce(w, 'enter-full-screen')
+
+      w.setFullScreen(false)
+      await emittedOnce(w, 'leave-html-full-screen')
     })
   })
 
