@@ -402,7 +402,7 @@ describe('BrowserWindow module', () => {
   })
 
   // TODO(alexeykuzmin): [Ch66] Enable the test. Passes locally.
-  xdescribe('BrowserWindow.getFocusedWindow()', () => {
+  describe('BrowserWindow.getFocusedWindow()', () => {
     it('returns the opener window when dev tools window is focused', async () => {
       w.show()
       w.webContents.openDevTools({mode: 'undocked'})
@@ -613,7 +613,7 @@ describe('BrowserWindow module', () => {
   })
 
   // TODO(alexeykuzmin): [Ch66] Enable the test. Passes locally.
-  xdescribe('BrowserWindow.alwaysOnTop() resets level on minimize', () => {
+  describe('BrowserWindow.alwaysOnTop() resets level on minimize', () => {
     before(function () {
       if (process.platform !== 'darwin') {
         this.skip()
@@ -1779,8 +1779,7 @@ describe('BrowserWindow module', () => {
     })
   })
 
-  // TODO(alexeykuzmin): [Ch66] Enable the tests. They pass locally.
-  xdescribe('document.visibilityState/hidden', () => {
+  describe('document.visibilityState/hidden', () => {
     beforeEach(() => { w.destroy() })
 
     function onVisibilityChange (callback) {
@@ -1818,7 +1817,8 @@ describe('BrowserWindow module', () => {
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
     })
 
-    it('visibilityState changes when window is hidden', async () => {
+    // TODO(alexeykuzmin): [Ch66] Enable the tests. They pass locally.
+    xit('visibilityState changes when window is hidden', async () => {
       w = new BrowserWindow({width: 100, height: 100})
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
 
@@ -1877,7 +1877,8 @@ describe('BrowserWindow module', () => {
       w.loadURL(`file://${path.join(fixtures, 'pages', 'visibilitychange.html')}`)
     })
 
-    it('visibilityState changes when window is minimized', async function () {
+    // TODO(alexeykuzmin): [Ch66] Enable the tests. They pass locally.
+    xit('visibilityState changes when window is minimized', async function () {
       if (isCI && process.platform === 'linux') {
         // FIXME(alexeykuzmin): Skip the test instead of marking it as passed.
         // afterEach hook won't be run if a test is skipped dynamically.
@@ -2424,7 +2425,7 @@ describe('BrowserWindow module', () => {
     })
 
     // TODO(alexeykuzmin): [Ch66] Enable the tests. They pass locally.
-    xdescribe('fullscreen state', () => {
+    describe('fullscreen state', () => {
       before(function () {
         // Only implemented on macOS.
         if (process.platform !== 'darwin') {
@@ -2580,7 +2581,7 @@ describe('BrowserWindow module', () => {
     })
 
     // TODO(alexeykuzmin): [Ch66] Enable the test. Fails on CI bots, passes locally.
-    xit('exits HTML fullscreen when window leaves fullscreen', async () => {
+    it('exits HTML fullscreen when window leaves fullscreen', async () => {
       w.destroy()
       w = new BrowserWindow()
       w.loadURL('about:blank')
